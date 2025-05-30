@@ -40,9 +40,11 @@ RUN /root/.local/bin/uv pip install --system --no-cache ".[bench]"
 RUN playwright install-deps
 RUN playwright install chromium
 COPY olmocr olmocr
+COPY olmocr_api_server.py olmocr_api_server.py
 
 WORKDIR /root
 COPY olmocr olmocr
 
 RUN python3 -m sglang.launch_server --help
 RUN python3 -m olmocr.pipeline --help
+CMD ["python3", "olmocr_api_server.py"]

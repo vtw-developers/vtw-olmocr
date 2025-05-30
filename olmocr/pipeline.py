@@ -92,6 +92,7 @@ get_pdf_filter = cache(lambda: PdfFilter(languages_to_keep={Language.ENGLISH, No
 
 # Specify a default port, but it can be overridden by args
 SGLANG_SERVER_PORT = 30024
+SGLANG_SERVER_HOST = "sglang"
 
 
 @dataclass(frozen=True)
@@ -214,7 +215,7 @@ async def apost(url, json_data):
 
 
 async def process_page(args, worker_id: int, pdf_orig_path: str, pdf_local_path: str, page_num: int) -> PageResult:
-    COMPLETION_URL = f"http://localhost:{SGLANG_SERVER_PORT}/v1/chat/completions"
+    COMPLETION_URL = f"http://{SGLANG_SERVER_HOST}:{SGLANG_SERVER_PORT}/v1/chat/completions"
     MAX_RETRIES = args.max_page_retries
     TEMPERATURE_BY_ATTEMPT = [0.1, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8]
     exponential_backoffs = 0
@@ -234,6 +235,8 @@ async def process_page(args, worker_id: int, pdf_orig_path: str, pdf_local_path:
         try:
             status_code, response_body = await apost(COMPLETION_URL, json_data=query)
 
+            logger.info(f"sglang raw response_body: {response_body}")
+
             if status_code == 400:
                 raise ValueError(f"Got BadRequestError from server: {response_body}, skipping this response")
             elif status_code == 500:
@@ -242,6 +245,7 @@ async def process_page(args, worker_id: int, pdf_orig_path: str, pdf_local_path:
                 raise ValueError(f"Error http status {status_code}")
 
             base_response_data = json.loads(response_body)
+            logger.info(f"sglang base_response_data: {base_response_data}")
 
             if base_response_data["usage"]["total_tokens"] > args.model_max_context:
                 local_anchor_text_len = max(1, local_anchor_text_len // 2)
@@ -254,6 +258,7 @@ async def process_page(args, worker_id: int, pdf_orig_path: str, pdf_local_path:
             )
 
             model_response_json = json.loads(base_response_data["choices"][0]["message"]["content"])
+            logger.info(f"sglang model_response_json: {model_response_json}")
             page_response = PageResponse(**model_response_json)
 
             if not page_response.is_rotation_valid and attempt < MAX_RETRIES - 1:
@@ -676,7 +681,7 @@ async def sglang_server_host(model_name_or_path, args, semaphore):
 async def sglang_server_ready():
     max_attempts = 300
     delay_sec = 1
-    url = f"http://localhost:{SGLANG_SERVER_PORT}/v1/models"
+    url = f"http://{SGLANG_SERVER_HOST}:{SGLANG_SERVER_PORT}/v1/models"
 
     for attempt in range(1, max_attempts + 1):
         try:
@@ -999,7 +1004,7 @@ async def main():
     )
     parser.add_argument("--beaker_gpus", type=int, default=1, help="Number of gpu replicas to run")
     parser.add_argument("--beaker_priority", type=str, default="normal", help="Beaker priority level for the job")
-    parser.add_argument("--port", type=int, default=30024, help="Port to use for the SGLang server")
+    parser.add_argument("--port", type=int, default=30000, help="Port to use for the SGLang server")
     args = parser.parse_args()
 
     global workspace_s3, pdf_s3

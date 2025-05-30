@@ -1,0 +1,44 @@
+version: "3.9"
+services:
+  olmocr-api:
+    build: .
+    container_name: olmocr-api
+    environment:
+      - OLMOCR_MODEL=allenai/olmOCR-7B-0225-preview
+      - SGLANG_SERVER_URL=http://sglang:30000
+      - TRANSFORMERS_CACHE=/models/olmocr-7b
+    ports:
+      - "6000:8000"
+    volumes:
+      - .:/app
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    depends_on:
+      - sglang
+
+  sglang:
+    build:
+      context: ./sglang/docker
+      dockerfile: Dockerfile
+    container_name: sglang
+    environment:
+      - MODEL_PATH=/models/olmocr-7b
+      - TRANSFORMERS_CACHE=/models/olmocr-7b
+    ports:
+      - "30000:30000"
+    volumes:
+      - /data/workspace/vtw-olmocr/models:/models/olmocr-7b
+    command: >
+      python3 -m sglang.launch_server --model-path /models/olmocr-7b --host 0.0.0.0 --port 30000
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu] 
