@@ -1,4 +1,4 @@
-from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi import FastAPI, File, UploadFile, HTTPException, Form
 from fastapi.responses import JSONResponse
 import tempfile
 import shutil
@@ -6,6 +6,7 @@ import asyncio
 import uvicorn
 import os
 from pypdf import PdfReader  # PDF 페이지 수 확인용
+import requests
 
 # olmocr 파이프라인 import
 from olmocr.pipeline import process_page, PageResult
@@ -102,6 +103,29 @@ async def ocr_pdf_all(file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         os.remove(tmp_path)
+
+@app.post("/external/process")
+async def external_process(
+    file: UploadFile = File(...),
+    url: str = Form(...),
+    api_key: str = Form(...),
+    mime_type: str = Form(None)
+):
+    try:
+        data = await file.read()
+        headers = {}
+        if mime_type:
+            headers["Content-Type"] = mime_type
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+        endpoint = url.rstrip("/") + "/process"
+        r = requests.put(endpoint, data=data, headers=headers)
+        if r.ok:
+            return JSONResponse(r.json())
+        else:
+            raise HTTPException(status_code=r.status_code, detail=r.text)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
     uvicorn.run("olmocr_api_server:app", host="0.0.0.0", port=8000) 
