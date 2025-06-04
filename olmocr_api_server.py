@@ -1,4 +1,4 @@
-from fastapi import FastAPI, File, UploadFile, HTTPException, Form
+from fastapi import FastAPI, File, UploadFile, HTTPException, Form, Request, Header
 from fastapi.responses import JSONResponse
 import tempfile
 import shutil
@@ -104,28 +104,59 @@ async def ocr_pdf_all(file: UploadFile = File(...)):
     finally:
         os.remove(tmp_path)
 
-@app.post("/external/process")
+@app.put("/external/process")
 async def external_process(
-    file: UploadFile = File(...),
-    url: str = Form(...),
-    api_key: str = Form(...),
-    mime_type: str = Form(None)
+    request: Request,
+    content_type: str = Header(None),
+    authorization: str = Header(None)
 ):
     try:
-        data = await file.read()
-        headers = {}
-        if mime_type:
-            headers["Content-Type"] = mime_type
-        if api_key:
-            headers["Authorization"] = f"Bearer {api_key}"
-        endpoint = url.rstrip("/") + "/process"
-        r = requests.put(endpoint, data=data, headers=headers)
-        if r.ok:
-            return JSONResponse(r.json())
-        else:
-            raise HTTPException(status_code=r.status_code, detail=r.text)
+        # 파일 데이터 읽기
+        data = await request.body()
+        mime_type = content_type
+        api_key = None
+        if authorization and authorization.startswith("Bearer "):
+            api_key = authorization[len("Bearer ") :]
+
+        # 파일을 임시로 저장
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+            tmp.write(data)
+            tmp_path = tmp.name
+
+        # olmocr 파이프라인 호출 (예시: 전체 페이지 OCR)
+        args = Args()
+        worker_id = 0
+        import olmocr.pipeline as pipeline
+        sglang_url = args.sglang_server_url
+        if sglang_url.startswith("http://"):
+            sglang_url = sglang_url[len("http://"):]
+        elif sglang_url.startswith("https://"):
+            sglang_url = sglang_url[len("https://"):]
+        host, port = sglang_url.split(":")
+        pipeline.SGLANG_SERVER_HOST = host
+        pipeline.SGLANG_SERVER_PORT = int(port)
+
+        from pypdf import PdfReader
+        reader = PdfReader(tmp_path)
+        num_pages = len(reader.pages)
+        page_texts = []
+        for page_num in range(1, num_pages + 1):
+            page_result: PageResult = await process_page(args, worker_id, tmp_path, tmp_path, page_num)
+            if page_result and page_result.response:
+                page_texts.append(page_result.response.natural_text)
+            else:
+                page_texts.append("")
+        full_text = "\n".join(page_texts)
+        result = {
+            "page_content": full_text,
+            "metadata": {"mime_type": mime_type, "num_pages": num_pages}
+        }
+        return JSONResponse(result)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if 'tmp_path' in locals() and os.path.exists(tmp_path):
+            os.remove(tmp_path)
 
 if __name__ == "__main__":
     uvicorn.run("olmocr_api_server:app", host="0.0.0.0", port=8000) 
