@@ -27,18 +27,26 @@ services:
       dockerfile: Dockerfile
     container_name: sglang
     environment:
+      - CUDA_VISIBLE_DEVICES=0
       - MODEL_PATH=/models/olmocr-7b
       - TRANSFORMERS_CACHE=/models/olmocr-7b
     ports:
       - "30000:30000"
     volumes:
-      - /data/workspace/vtw-olmocr/models:/models/olmocr-7b
+      - /data/workspace/vtw-olmocr/models/olmocr-7b:/models/olmocr-7b
     command: >
       python3 -m sglang.launch_server --model-path /models/olmocr-7b --host 0.0.0.0 --port 30000
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu] 
+    runtime: nvidia 
+
+  kure-embedding:
+    build:
+      context: ./kure-embedding
+      dockerfile: Dockerfile
+    container_name: kure-embedding
+    environment:
+      - CUDA_VISIBLE_DEVICES=1
+    ports:
+      - "30001:30001"
+    volumes:
+      - /data/workspace/vtw-olmocr/models/kure-v1:/models/kure-v1
+    runtime: nvidia
